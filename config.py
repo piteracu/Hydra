@@ -33,7 +33,10 @@ WEATHER_HOURLY_VARS = [
     "weather_code",
     "wind_speed_10m",
     "wind_direction_10m",
-    "pressure_msl"
+    "pressure_msl",
+    "soil_moisture_0_to_1cm",
+    "soil_moisture_1_to_3cm",
+    "soil_moisture_3_to_9cm"
 ]
 
 WEATHER_DAILY_VARS = [
@@ -401,3 +404,147 @@ ALERT_LEVELS = {
     3: {"name": "Alerta", "color": "#f97316", "icon": "🟠", "description": "Riesgo elevado de inundación"},
     4: {"name": "Emergencia", "color": "#ef4444", "icon": "🔴", "description": "Peligro inminente de inundación"}
 }
+
+# ─── Red Hidrográfica de Salta (Líneas y estaciones de monitoreo) ─
+SALTA_RIVERS = [
+    {
+        "id": "rio_bermejo",
+        "name": "Río Bermejo",
+        "basin": "Cuenca del Río Bermejo",
+        "danger_level": 4,
+        "path": [
+            [-64.9667, -22.2500],
+            [-64.5000, -22.7000],
+            [-64.3333, -23.1333],
+            [-63.8000, -23.1800],
+            [-62.8833, -23.2000]
+        ],
+        "station": {"lat": -23.1333, "lon": -64.3333, "name": "Estación Orán / Bermejo"}
+    },
+    {
+        "id": "rio_pilcomayo",
+        "name": "Río Pilcomayo",
+        "basin": "Cuenca del Río Pilcomayo",
+        "danger_level": 4,
+        "path": [
+            [-63.6667, -22.1000],
+            [-63.0000, -22.4000],
+            [-62.4000, -22.7500],
+            [-62.0000, -23.1000]
+        ],
+        "station": {"lat": -22.2833, "lon": -63.6667, "name": "Estación Misión La Paz"}
+    },
+    {
+        "id": "rio_arenales",
+        "name": "Río Arenales",
+        "basin": "Cuenca del Río Juramento",
+        "danger_level": 3,
+        "path": [
+            [-65.5000, -24.7200],
+            [-65.4500, -24.7600],
+            [-65.4100, -24.7800],
+            [-65.3800, -24.8500],
+            [-65.4200, -25.2000]
+        ],
+        "station": {"lat": -24.7821, "lon": -65.4232, "name": "Estación Salta Capital"}
+    },
+    {
+        "id": "rio_vaqueros",
+        "name": "Río Vaqueros",
+        "basin": "Cuenca del Río Juramento",
+        "danger_level": 3,
+        "path": [
+            [-65.4000, -24.6200],
+            [-65.4100, -24.7000],
+            [-65.4180, -24.7650]
+        ],
+        "station": {"lat": -24.7650, "lon": -65.4180, "name": "Estación Vaqueros"}
+    },
+    {
+        "id": "rio_juramento",
+        "name": "Río Juramento (Pasaje)",
+        "basin": "Cuenca del Río Juramento",
+        "danger_level": 3,
+        "path": [
+            [-65.4200, -25.2000],
+            [-64.9667, -25.5000],
+            [-64.4000, -25.3000],
+            [-64.0667, -25.1333],
+            [-63.5000, -25.4000]
+        ],
+        "station": {"lat": -25.1333, "lon": -64.0667, "name": "Estación El Tunal / Anta"}
+    },
+    {
+        "id": "rio_rosario",
+        "name": "Río Rosario / Toro",
+        "basin": "Cuenca del Río Juramento",
+        "danger_level": 2,
+        "path": [
+            [-65.7000, -24.9000],
+            [-65.5833, -24.9833],
+            [-65.4833, -24.9000],
+            [-65.4200, -25.1000]
+        ],
+        "station": {"lat": -24.9833, "lon": -65.5833, "name": "Estación Campo Quijano"}
+    },
+    {
+        "id": "rio_calchaqui",
+        "name": "Río Calchaquí",
+        "basin": "Cuenca del Río Juramento",
+        "danger_level": 1,
+        "path": [
+            [-66.2000, -24.7167],
+            [-66.1667, -25.1167],
+            [-66.3000, -25.4333],
+            [-65.9333, -25.8833],
+            [-65.9833, -26.0667]
+        ],
+        "station": {"lat": -26.0667, "lon": -65.9833, "name": "Estación Cafayate"}
+    },
+    {
+        "id": "rio_mojotoro",
+        "name": "Río Mojotoro / Lavayén",
+        "basin": "Cuenca del Río Bermejo",
+        "danger_level": 3,
+        "path": [
+            [-65.3667, -24.5833],
+            [-65.0500, -24.6667],
+            [-64.7000, -24.4000],
+            [-64.3333, -24.1000]
+        ],
+        "station": {"lat": -24.6667, "lon": -65.0500, "name": "Estación Güemes"}
+    }
+]
+
+# ─── Cuencas Hidrográficas Principales de la Provincia ─────────────
+SALTA_BASINS = [
+    {
+        "name": "Cuenca del Río Bermejo",
+        "color": "#f97316",
+        "center": [-64.2, -23.0],
+        "risk_summary": "Alta precipitación subtropical en Yungas. Crecidas violentas en época estival.",
+        "departments": ["oran", "san_martin", "rivadavia", "la_caldera", "gral_guemes", "iruya", "santa_victoria"]
+    },
+    {
+        "name": "Cuenca del Río Juramento / Pasaje",
+        "color": "#0ea5e9",
+        "center": [-65.1, -25.0],
+        "risk_summary": "Drena el Valle de Lerma y la Cuenca del Arenales hacia el Embalse Cabra Corral y Chaco Salteño.",
+        "departments": ["capital", "cerrillos", "rosario_lerma", "chicoana", "anta", "metan", "rosario_frontera", "la_candelaria", "guachipas", "la_vina"]
+    },
+    {
+        "name": "Cuenca de los Valles Calchaquíes",
+        "color": "#eab308",
+        "center": [-66.1, -25.5],
+        "risk_summary": "Régimen árido a semiárido. Riesgo concentrado en aluviones de quebradas de alta pendiente.",
+        "departments": ["cafayate", "san_carlos", "molinos", "cachi", "la_poma"]
+    },
+    {
+        "name": "Cuenca Endorreica de la Puna",
+        "color": "#a855f7",
+        "center": [-66.8, -24.3],
+        "risk_summary": "Cuencas cerradas y salares de alta montaña (>3500m). Riesgo de inundación muy bajo.",
+        "departments": ["los_andes"]
+    }
+]
+

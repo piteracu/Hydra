@@ -112,7 +112,7 @@ def get_manual_alerts():
     return jsonify({"success": True, "alerts": alerts, "count": len(alerts)})
 
 
-# ─── API: Geolocalización ───────────────────────────────────────
+# ─── API: Geolocalización y Factores de Inundación ───────────────
 @app.route("/api/location/info")
 def get_location_info():
     lat = request.args.get("lat", type=float)
@@ -120,6 +120,30 @@ def get_location_info():
     if lat is None or lon is None:
         return jsonify({"success": False, "error": "Parámetros lat y lon requeridos"}), 400
     data = alert_service.get_alert_for_location(lat, lon)
+    return jsonify(data)
+
+
+@app.route("/api/location/factors")
+def get_location_factors():
+    lat = request.args.get("lat", type=float)
+    lon = request.args.get("lon", type=float)
+    if lat is None or lon is None:
+        return jsonify({"success": False, "error": "Parámetros lat y lon requeridos"}), 400
+    data = alert_service.get_factors_for_point(lat, lon)
+    return jsonify(data)
+
+
+@app.route("/api/factors/province")
+def get_province_factors():
+    data = alert_service.get_province_factors()
+    return jsonify(data)
+
+
+@app.route("/api/cartography/<dept_id>")
+def get_cartography_analysis(dept_id):
+    data = alert_service.get_cartographic_analysis(dept_id)
+    if not data["success"]:
+        return jsonify(data), 404
     return jsonify(data)
 
 

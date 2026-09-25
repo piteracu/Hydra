@@ -127,15 +127,26 @@ def _get_current_summary(data):
             break
     
     precip_values = hourly.get("precipitation", [])
-    # Calcular precipitación acumulada próximas 24h
     precip_24h = sum(precip_values[idx:idx+24]) if len(precip_values) > idx else 0
-    # Precipitación próximas 48h
     precip_48h = sum(precip_values[idx:idx+48]) if len(precip_values) > idx else 0
+    
+    sm_0_1 = hourly.get("soil_moisture_0_to_1cm", [])
+    sm_1_3 = hourly.get("soil_moisture_1_to_3cm", [])
+    sm_3_9 = hourly.get("soil_moisture_3_to_9cm", [])
+    
+    current_sm = sm_0_1[idx] if idx < len(sm_0_1) and sm_0_1[idx] is not None else 0.25
+    deep_sm = sm_3_9[idx] if idx < len(sm_3_9) and sm_3_9[idx] is not None else 0.25
+    
+    # Estimación de saturación del suelo (0.45 m³/m³ es capacidad de campo / saturación relativa alta)
+    soil_saturation_pct = min(100, max(0, round((current_sm / 0.45) * 100, 1)))
     
     return {
         "precipitation_next_24h": round(precip_24h, 1),
         "precipitation_next_48h": round(precip_48h, 1),
-        "max_hourly_precip": round(max(precip_values[idx:idx+24]) if precip_values[idx:idx+24] else 0, 1)
+        "max_hourly_precip": round(max(precip_values[idx:idx+24]) if precip_values[idx:idx+24] else 0, 1),
+        "soil_moisture_surface": round(current_sm, 3),
+        "soil_moisture_deep": round(deep_sm, 3),
+        "soil_saturation_pct": soil_saturation_pct
     }
 
 

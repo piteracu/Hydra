@@ -1,4 +1,121 @@
-/* Alerts module — Hydra — Gestión de alertas */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Hydra — Módulo de Alertas & Sirena de Emergencia Sonora (15s)
+   Integración con Notificaciones, Web Audio API y Mapas ArcGIS (2D/3D)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ─── Sintetizador Web Audio API de Sirena de Emergencia (15s) ───────────────
+const AudioSirenModule = {
+    audioCtx: null,
+    oscillator1: null,
+    oscillator2: null,
+    gainNode: null,
+    isPlaying: false,
+    timer: null,
+    progressInterval: null,
+
+    init() {
+        if (!this.audioCtx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (AudioContext) {
+                this.audioCtx = new AudioContext();
+            }
+        }
+    },
+
+    playSiren(durationSeconds = 15, onCountdown, onComplete) {
+        this.init();
+        if (this.isPlaying) this.stopSiren();
+
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+        }
+
+        this.isPlaying = true;
+        let remainingSeconds = durationSeconds;
+
+        if (onCountdown) onCountdown(remainingSeconds);
+
+        // Crear osciladores sintéticos para tono de sirena dual (700Hz y 950Hz)
+        try {
+            if (this.audioCtx) {
+                const now = this.audioCtx.currentTime;
+
+                this.gainNode = this.audioCtx.createGain();
+                this.gainNode.gain.setValueAtTime(0.3, now);
+                this.gainNode.connect(this.audioCtx.destination);
+
+                this.oscillator1 = this.audioCtx.createOscillator();
+                this.oscillator1.type = 'sawtooth';
+                this.oscillator1.frequency.setValueAtTime(700, now);
+
+                // Modulación de frecuencia de sirena (sweep de 700Hz a 950Hz cada 0.5s)
+                for (let i = 0; i < durationSeconds * 2; i++) {
+                    const time = now + (i * 0.5);
+                    const freq = i % 2 === 0 ? 950 : 700;
+                    this.oscillator1.frequency.exponentialRampToValueAtTime(freq, time + 0.45);
+                }
+
+                this.oscillator1.connect(this.gainNode);
+                this.oscillator1.start(now);
+                this.oscillator1.stop(now + durationSeconds);
+            }
+        } catch (e) {
+            console.warn("Web Audio API falló o no soportado:", e);
+        }
+
+        // Intervalo de progreso visual de 15 segundos
+        const startTime = Date.now();
+        const totalMs = durationSeconds * 1000;
+
+        this.progressInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const remaining = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+            const pct = Math.max(0, 100 - (elapsed / totalMs * 100));
+
+            const progressBar = document.getElementById('sirenProgressBar');
+            const countdownText = document.getElementById('sirenCountdownText');
+
+            if (progressBar) progressBar.style.width = `${pct}%`;
+            if (countdownText) countdownText.textContent = `${remaining}s`;
+
+            if (elapsed >= totalMs) {
+                this.stopSiren();
+                if (onComplete) onComplete();
+            }
+        }, 100);
+    },
+
+    stopSiren() {
+        this.isPlaying = false;
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
+        }
+        if (this.timer) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+
+        try {
+            if (this.oscillator1) {
+                this.oscillator1.stop();
+                this.oscillator1.disconnect();
+                this.oscillator1 = null;
+            }
+            if (this.gainNode) {
+                this.gainNode.disconnect();
+                this.gainNode = null;
+            }
+        } catch (e) {}
+
+        const progressBar = document.getElementById('sirenProgressBar');
+        const countdownText = document.getElementById('sirenCountdownText');
+        if (progressBar) progressBar.style.width = '0%';
+        if (countdownText) countdownText.textContent = '0s';
+    }
+};
+
+// ─── Módulo de Alertas Hydra ────────────────────────────────────────────────
 const AlertsModule = {
     autoAlerts: [],
     manualAlerts: [],
@@ -24,6 +141,7 @@ const AlertsModule = {
             if (data.success) {
                 this.manualAlerts = data.alerts;
                 this.renderManualAlerts();
+                this.plotManualAlertsOnMaps(data.alerts);
             }
         } catch (e) { console.error('Error loading manual alerts:', e); }
     },
@@ -37,8 +155,12 @@ const AlertsModule = {
             });
             const data = await resp.json();
             if (data.success) {
-                App.showToast('Alerta creada exitosamente', 'success');
+                App.showToast('🚨 Alerta transmitida exitosamente', 'success');
                 await this.loadManualAlerts();
+                await App.loadDashboard();
+
+                // Disparar Sirena Sonora de 15 segundos y Notificación de Emergencia
+                this.triggerEmergencyAlert(data.alert);
                 return true;
             } else {
                 App.showToast('Error: ' + data.error, 'error');
@@ -56,8 +178,66 @@ const AlertsModule = {
             if (data.success) {
                 App.showToast('Alerta desactivada', 'success');
                 await this.loadManualAlerts();
+                await App.loadDashboard();
             }
         } catch (e) { App.showToast('Error al desactivar', 'error'); }
+    },
+
+    triggerEmergencyAlert(alert) {
+        const levelColors = { 1: "#22c55e", 2: "#eab308", 3: "#f97316", 4: "#ef4444" };
+        const color = levelColors[alert.alert_level] || "#ef4444";
+
+        const modal = document.getElementById('emergencyAlertModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            document.getElementById('emergencyDeptName').textContent = alert.department_name;
+            document.getElementById('emergencyIcon').textContent = alert.alert_icon || '🔴';
+
+            const badge = document.getElementById('emergencyLevelBadge');
+            if (badge) {
+                badge.textContent = `Nivel ${alert.alert_level} — ${alert.alert_name}`;
+                badge.style.background = `${color}25`;
+                badge.style.color = color;
+            }
+
+            document.getElementById('emergencyMessage').textContent = alert.message;
+            document.getElementById('emergencyAuthor').textContent = `Por: ${alert.created_by}`;
+            document.getElementById('emergencyTime').textContent = new Date(alert.created_at || Date.now()).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+            // Disparar Sirena de Audio por 15 segundos
+            AudioSirenModule.playSiren(15);
+        }
+
+        // Solicitar/Lanzar Notificación del Sistema de Navegador
+        if ("Notification" in window) {
+            if (Notification.permission === "granted") {
+                new Notification("🚨 ALERTA INUNDACIÓN — SALTA", {
+                    body: `${alert.department_name} (Nivel ${alert.alert_level} ${alert.alert_name}): ${alert.message}`,
+                    requireInteraction: true
+                });
+            } else if (Notification.permission !== "denied") {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        new Notification("🚨 ALERTA INUNDACIÓN — SALTA", {
+                            body: `${alert.department_name} (Nivel ${alert.alert_level} ${alert.alert_name}): ${alert.message}`
+                        });
+                    }
+                });
+            }
+        }
+
+        // Enfocar el departamento en los mapas 2D y 3D de ArcGIS
+        if (MapModule && alert.department_id) {
+            MapModule.focusDepartment(alert.department_id);
+        }
+    },
+
+    plotManualAlertsOnMaps(manualAlerts) {
+        if (!MapModule || !MapModule.deptLayer) return;
+        // Re-plotear departamentos enriquecidos con alertas manuales
+        if (App.departments) {
+            App.loadDashboard();
+        }
     },
 
     _formatPrecip(val) {
@@ -121,7 +301,12 @@ const AlertsModule = {
                     <h4>${a.alert_icon} ${a.department_name}</h4>
                     <span class="alert-card-badge" style="background:${a.alert_color}15;color:${a.alert_color}">${a.alert_name}</span>
                 </div>
-                <div class="alert-card-body"><p>${a.message}</p></div>
+                <div class="alert-card-body">
+                    <p style="margin-bottom:6px; font-weight:600; color:#fff;">${a.message}</p>
+                    <button class="btn btn-sm btn-outline" onclick="AlertsModule.triggerEmergencyAlert(${JSON.stringify(a).replace(/"/g, '&quot;')})" style="padding:2px 6px; font-size:11px;">
+                        🔊 Reproducir Sirena (15s)
+                    </button>
+                </div>
                 <div class="alert-card-footer">
                     <span>Por: ${a.created_by} — ${new Date(a.created_at).toLocaleString('es-AR')}</span>
                     <button class="btn btn-sm btn-danger" onclick="AlertsModule.deactivateAlert(${a.id})">Desactivar</button>
@@ -146,6 +331,7 @@ const AlertsModule = {
         const btnCancel = document.getElementById('cancelAlert');
         const form = document.getElementById('newAlertForm');
 
+        // Modal de Nueva Alerta
         btnNew?.addEventListener('click', () => { modal.style.display = 'flex'; });
         btnClose?.addEventListener('click', () => { modal.style.display = 'none'; });
         btnCancel?.addEventListener('click', () => { modal.style.display = 'none'; });
@@ -160,5 +346,34 @@ const AlertsModule = {
             const ok = await this.createAlert(deptId, level, message, author);
             if (ok) { modal.style.display = 'none'; form.reset(); }
         });
+
+        // Handlers del Modal de Emergencia y Sirena Sonora
+        const emergencyModal = document.getElementById('emergencyAlertModal');
+        const btnCloseEmergency = document.getElementById('closeEmergencyModal');
+        const btnSilence = document.getElementById('btnSilenceSiren');
+        const btnViewMap = document.getElementById('btnViewEmergencyMap');
+
+        btnCloseEmergency?.addEventListener('click', () => {
+            AudioSirenModule.stopSiren();
+            if (emergencyModal) emergencyModal.style.display = 'none';
+        });
+
+        btnSilence?.addEventListener('click', () => {
+            AudioSirenModule.stopSiren();
+            btnSilence.textContent = "🔇 Sirena Silenciada";
+        });
+
+        btnViewEmergencyMap?.addEventListener('click', () => {
+            AudioSirenModule.stopSiren();
+            if (emergencyModal) emergencyModal.style.display = 'none';
+            App.navigateTo('map');
+        });
+
+        // Solicitar permisos de notificación de escritorio al interactuar
+        document.addEventListener('click', () => {
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        }, { once: true });
     }
 };
