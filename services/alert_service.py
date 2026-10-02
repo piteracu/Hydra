@@ -89,6 +89,10 @@ def get_all_active_alerts():
     return [a for a in _alerts if a.get("active")]
 
 
+def get_alerts_after(after_id=0):
+    return [a for a in _alerts if a.get("active") and a.get("id", 0) > after_id]
+
+
 def get_alerts_for_department(dept_id):
     return [a for a in _alerts if a.get("active") and a["department_id"] == dept_id]
 

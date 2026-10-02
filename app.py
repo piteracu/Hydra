@@ -112,6 +112,14 @@ def get_manual_alerts():
     return jsonify({"success": True, "alerts": alerts, "count": len(alerts)})
 
 
+@app.route("/api/alerts/latest")
+def get_latest_alerts():
+    after_id = request.args.get("after_id", default=0, type=int)
+    alerts = alert_service.get_alerts_after(after_id)
+    max_id = max([a["id"] for a in alert_service._alerts], default=0)
+    return jsonify({"success": True, "alerts": alerts, "max_id": max_id, "count": len(alerts)})
+
+
 # ─── API: Geolocalización y Factores de Inundación ───────────────
 @app.route("/api/location/info")
 def get_location_info():

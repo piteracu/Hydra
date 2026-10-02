@@ -1,14 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Hydra — Módulo de Mapa Interactivo ArcGIS JS SDK 4.29
-   Monitoreo Multifactores & Análisis Cartográfico de Inundabilidad
+   Monitoreo Multifactores de Inundabilidad
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const MapModule = {
     map: null,
     view: null,
     view2D: null,
-    view3D: null,
-    is3D: false,
 
     // Capas ArcGIS de Factores de Inundación
     deptLayer: null,
@@ -18,6 +16,21 @@ const MapModule = {
     basinsLayer: null,
     zonesLayer: null,
     inspectorLayer: null,
+
+    // Capas ArcGIS de Factores de Inundación
+    deptLayer: null,
+    precipLayer: null,
+    riversLayer: null,
+    soilLayer: null,
+    basinsLayer: null,
+    zonesLayer: null,
+    inspectorLayer: null,
+
+    // Capas de Clima Urbano y Callejero (Escala Manzana/Calle)
+    urbanHeatLayer: null,
+    urbanRainLayer: null,
+    urbanWindLayer: null,
+    isUrbanMode: false,
 
     deptGraphics: {},
     _Graphic: null,
@@ -35,7 +48,6 @@ const MapModule = {
         }, [
             "esri/Map",
             "esri/views/MapView",
-            "esri/views/SceneView",
             "esri/Graphic",
             "esri/layers/GraphicsLayer",
             "esri/widgets/Search",
@@ -47,7 +59,7 @@ const MapModule = {
             "esri/geometry/Circle",
             "esri/geometry/Point"
         ], (
-            Map, MapView, SceneView, Graphic, GraphicsLayer,
+            Map, MapView, Graphic, GraphicsLayer,
             Search, Locate, ScaleBar, Compass,
             Polyline, Polygon, Circle, Point
         ) => {
@@ -66,10 +78,14 @@ const MapModule = {
             this.deptLayer = new GraphicsLayer({ title: "Departamentos", visible: true });
             this.inspectorLayer = new GraphicsLayer({ title: "Punto Seleccionado", visible: true });
 
-            // Creación del Mapa con Terreno Mundial (World Elevation) para 3D
+            // Capas de Clima Urbano sobre Callejero
+            this.urbanHeatLayer = new GraphicsLayer({ title: "🔥 Malla de Calor Urbano", visible: false });
+            this.urbanRainLayer = new GraphicsLayer({ title: "🌧️ Escurrimiento en Calles", visible: false });
+            this.urbanWindLayer = new GraphicsLayer({ title: "💨 Corrientes de Viento en Calles", visible: false });
+
+            // Creación del Mapa
             this.map = new Map({
                 basemap: "dark-gray-vector",
-                ground: "world-elevation",
                 layers: [
                     this.basinsLayer,
                     this.soilLayer,
@@ -77,6 +93,9 @@ const MapModule = {
                     this.riversLayer,
                     this.zonesLayer,
                     this.deptLayer,
+                    this.urbanHeatLayer,
+                    this.urbanRainLayer,
+                    this.urbanWindLayer,
                     this.inspectorLayer
                 ]
             });
@@ -97,26 +116,6 @@ const MapModule = {
                 }
             });
 
-            // Vista 3D (SceneView en #mapView3D)
-            this.view3D = new SceneView({
-                container: "mapView3D",
-                map: this.map,
-                camera: {
-                    position: {
-                        longitude: initialCenter[0],
-                        latitude: initialCenter[1] - 0.7,
-                        z: 120000
-                    },
-                    tilt: 45,
-                    heading: 0
-                },
-                ui: { components: ["zoom", "compass"] },
-                popup: {
-                    dockEnabled: true,
-                    dockOptions: { buttonEnabled: false, breakpoint: false, position: "bottom-right" }
-                }
-            });
-
             this.view = this.view2D;
 
             // Widgets 2D
@@ -129,16 +128,8 @@ const MapModule = {
             const scaleBar2D = new ScaleBar({ view: this.view2D, unit: "metric" });
             this.view2D.ui.add(scaleBar2D, "bottom-right");
 
-            // Widgets 3D
-            const search3D = new Search({ view: this.view3D });
-            this.view3D.ui.add(search3D, "top-right");
-
-            const locate3D = new Locate({ view: this.view3D });
-            this.view3D.ui.add(locate3D, "top-left");
-
             // Eventos de inspección por clic
             this._setupClickInspector(this.view2D);
-            this._setupClickInspector(this.view3D);
 
             this.view2D.when(() => {
                 console.log("ArcGIS 2D Map ready");
@@ -152,6 +143,7 @@ const MapModule = {
                     this._pendingZones = null;
                 }
                 this.loadProvinceFactors();
+                this.loadUrbanStreetClimateData();
             });
 
             // Handlers de los botones de Mapa Base
@@ -159,73 +151,103 @@ const MapModule = {
             document.getElementById('btnMapTopo')?.addEventListener('click', () => this.setBasemap('topo-vector', 'btnMapTopo'));
             document.getElementById('btnMapSatellite')?.addEventListener('click', () => this.setBasemap('satellite', 'btnMapSatellite'));
 
-            // Handlers de modo 2D / 3D con instancias de DOM completamente aisladas
-            document.getElementById('btnMode2D')?.addEventListener('click', () => this.switchMode(false));
-            document.getElementById('btnMode3D')?.addEventListener('click', () => this.switchMode(true));
+            // Handlers de Selector de Modo de Mapa (Provincial / Clima Urbano Callejero)
+            document.getElementById('btnMode2D')?.addEventListener('click', () => this.toggleUrbanMode(false));
+            document.getElementById('btnModeUrban')?.addEventListener('click', () => this.toggleUrbanMode(true));
+
+            // Handler para selector de departamento urbano
+            document.getElementById('urbanDeptSelect')?.addEventListener('change', (e) => {
+                if (e.target.value) this.switchUrbanDepartment(e.target.value);
+            });
 
             // Handlers de chips de capas de factores
             this._setupFactorChips();
 
-            // Handlers de Análisis Cartográfico
-            this._setupCartographicHandlers();
-
-            // Handler para cerrar drawers
+            // Handler para cerrar drawer de inspección
             document.getElementById('closeDrawerBtn')?.addEventListener('click', () => {
                 document.getElementById('pointInspectorDrawer')?.classList.remove('open');
                 this.inspectorLayer.removeAll();
             });
-
-            document.getElementById('closeCartoDrawerBtn')?.addEventListener('click', () => {
-                document.getElementById('cartoAnalysisDrawer')?.classList.remove('open');
-            });
         });
     },
 
-    switchMode(enable3D) {
-        if (this.is3D === enable3D) return;
-        this.is3D = enable3D;
-
+    toggleUrbanMode(enableUrban) {
+        this.isUrbanMode = enableUrban;
         const btn2D = document.getElementById('btnMode2D');
-        const btn3D = document.getElementById('btnMode3D');
-        const container2D = document.getElementById('mapView2D');
-        const container3D = document.getElementById('mapView3D');
+        const btnUrban = document.getElementById('btnModeUrban');
+        const selectorGroup = document.getElementById('urbanDeptSelectorGroup');
 
-        const currentLon = this.view ? this.view.center.longitude : -65.0;
-        const currentLat = this.view ? this.view.center.latitude : -24.2;
-        const currentZoom = this.view ? (this.view.zoom || 7) : 7;
-
-        if (enable3D) {
+        if (enableUrban) {
             btn2D?.classList.remove('active');
-            btn3D?.classList.add('active');
+            btnUrban?.classList.add('active');
+            if (selectorGroup) selectorGroup.style.display = 'flex';
 
-            if (container2D) { container2D.classList.remove('active'); container2D.classList.add('inactive'); }
-            if (container3D) { container3D.classList.remove('inactive'); container3D.classList.add('active'); }
+            // Cambiar a Mapa Base Vectorial de Calles de Alta Definición (Streets Navigation Vector)
+            if (this.map) this.map.basemap = "streets-navigation-vector";
 
-            this.view = this.view3D;
-            if (this.view3D) {
-                this.view3D.goTo({
-                    target: [currentLon, currentLat],
-                    zoom: currentZoom,
-                    tilt: 45
-                }, { animate: false });
-                setTimeout(() => this.view3D.resize(), 50);
-            }
+            // Obtener departamento urbano seleccionado o capital por defecto
+            const selectEl = document.getElementById('urbanDeptSelect');
+            const targetDept = selectEl?.value || App.currentDept || 'capital';
+            this.switchUrbanDepartment(targetDept);
+
+            // Activar capas de Clima Urbano
+            if (this.urbanHeatLayer) this.urbanHeatLayer.visible = true;
+            if (this.urbanRainLayer) this.urbanRainLayer.visible = true;
+            if (this.urbanWindLayer) this.urbanWindLayer.visible = true;
+
+            // Desactivar capas provinciales para limpiar el mapa urbano
+            if (this.deptLayer) this.deptLayer.visible = false;
+            if (this.basinsLayer) this.basinsLayer.visible = false;
+
+            // Activar chips Urbanos en la barra
+            document.getElementById('chipUrbanHeat')?.classList.add('active');
+            document.getElementById('chipUrbanRain')?.classList.add('active');
+            document.getElementById('chipUrbanWind')?.classList.add('active');
+            document.getElementById('chipDepts')?.classList.remove('active');
         } else {
-            btn3D?.classList.remove('active');
+            btnUrban?.classList.remove('active');
             btn2D?.classList.add('active');
+            if (selectorGroup) selectorGroup.style.display = 'none';
 
-            if (container3D) { container3D.classList.remove('active'); container3D.classList.add('inactive'); }
-            if (container2D) { container2D.classList.remove('inactive'); container2D.classList.add('active'); }
-
-            this.view = this.view2D;
+            // Restaurar Mapa Base Oscuro y Zoom Provincial
+            if (this.map) this.map.basemap = "dark-gray-vector";
             if (this.view2D) {
                 this.view2D.goTo({
-                    center: [currentLon, currentLat],
-                    zoom: Math.round(currentZoom)
-                }, { animate: false });
-                setTimeout(() => this.view2D.resize(), 50);
+                    center: [-65.0, -24.2],
+                    zoom: 7
+                }, { duration: 1000 });
             }
+
+            // Ocultar capas urbanas y restaurar provinciales
+            if (this.urbanHeatLayer) this.urbanHeatLayer.visible = false;
+            if (this.urbanRainLayer) this.urbanRainLayer.visible = false;
+            if (this.urbanWindLayer) this.urbanWindLayer.visible = false;
+
+            if (this.deptLayer) this.deptLayer.visible = true;
+            if (this.basinsLayer) this.basinsLayer.visible = true;
+
+            document.getElementById('chipUrbanHeat')?.classList.remove('active');
+            document.getElementById('chipUrbanRain')?.classList.remove('active');
+            document.getElementById('chipUrbanWind')?.classList.remove('active');
+            document.getElementById('chipDepts')?.classList.add('active');
         }
+    },
+
+    switchUrbanDepartment(deptId) {
+        const dept = this._deptData[deptId] || { lat: -24.7821, lon: -65.4232, name: "Capital" };
+        const lon = dept.lon;
+        const lat = dept.lat;
+
+        // Re-centrar mapa en el casco urbano del departamento a escala de calle (Zoom 15)
+        if (this.view2D) {
+            this.view2D.goTo({
+                center: [lon, lat],
+                zoom: 15
+            }, { duration: 1000 });
+        }
+
+        // Cargar trazado microclimático urbano para ese departamento
+        this.loadUrbanStreetClimateData(deptId);
     },
 
     setBasemap(basemap, activeBtnId) {
@@ -249,83 +271,12 @@ const MapModule = {
                     case 'soil': if (this.soilLayer) this.soilLayer.visible = isVisible; break;
                     case 'basins': if (this.basinsLayer) this.basinsLayer.visible = isVisible; break;
                     case 'capital': if (this.zonesLayer) this.zonesLayer.visible = isVisible; break;
+                    case 'urban-heat': if (this.urbanHeatLayer) this.urbanHeatLayer.visible = isVisible; break;
+                    case 'urban-rain': if (this.urbanRainLayer) this.urbanRainLayer.visible = isVisible; break;
+                    case 'urban-wind': if (this.urbanWindLayer) this.urbanWindLayer.visible = isVisible; break;
                 }
             });
         });
-    },
-
-    _setupCartographicHandlers() {
-        const cartoSelect = document.getElementById('cartoDeptSelect');
-        const btnCarto = document.getElementById('btnCartoAnalysis');
-        const btnFocus = document.getElementById('btnFocusCartoDept');
-
-        cartoSelect?.addEventListener('change', (e) => {
-            const deptId = e.target.value;
-            if (deptId) this.openCartographicAnalysis(deptId);
-        });
-
-        btnCarto?.addEventListener('click', () => {
-            const currentDept = cartoSelect?.value || App.currentDept || 'capital';
-            this.openCartographicAnalysis(currentDept);
-        });
-
-        btnFocus?.addEventListener('click', () => {
-            const deptId = cartoSelect?.value || App.currentDept || 'capital';
-            this.focusDepartment(deptId);
-        });
-    },
-
-    openCartographicAnalysis(deptId) {
-        const drawer = document.getElementById('cartoAnalysisDrawer');
-        if (!drawer) return;
-
-        drawer.classList.add('open');
-        document.getElementById('cartoDeptName').textContent = "Cargando Análisis Cartográfico...";
-
-        fetch(`/api/cartography/${deptId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (!data.success) return;
-                this.updateCartographicDrawer(data);
-                this.focusDepartment(deptId);
-            })
-            .catch(err => console.error("Error loading cartography:", err));
-    },
-
-    updateCartographicDrawer(data) {
-        const carto = data.cartography || {};
-        const rt = data.realtime_telemetry || {};
-
-        document.getElementById('cartoDeptName').textContent = data.name;
-        document.getElementById('cartoDeptSub').textContent = `Análisis Cartográfico — ${data.basin}`;
-
-        const riskBox = document.getElementById('cartoRiskBox');
-        if (riskBox) riskBox.style.borderLeftColor = rt.alert_color || '#22c55e';
-
-        document.getElementById('cartoRiskScore').textContent = rt.risk_score || '--';
-        document.getElementById('cartoRiskScore').style.color = rt.alert_color || '#22c55e';
-        document.getElementById('cartoAlertBadge').textContent = `${rt.alert_icon} Nivel ${rt.alert_level} — ${rt.alert_name}`;
-
-        document.getElementById('cartoElevation').textContent = `${data.elevation_m} m`;
-        document.getElementById('cartoBasin').textContent = data.basin;
-        document.getElementById('cartoArea').textContent = `${data.area_km2.toLocaleString('es-AR')} km²`;
-        document.getElementById('cartoPop').textContent = `${data.population.toLocaleString('es-AR')} hab.`;
-
-        document.getElementById('cartoSlopeType').textContent = carto.slope_type || '--';
-        document.getElementById('cartoSlopeDesc').textContent = carto.slope_description || '--';
-
-        document.getElementById('cartoDrainage').textContent = carto.drainage_capacity || '--';
-        document.getElementById('cartoSoilSat').textContent = `${rt.soil_saturation_pct || 20}%`;
-        document.getElementById('cartoVulnAreaPct').textContent = `${carto.vulnerability_area_pct || 30}%`;
-
-        document.getElementById('cartoRiverSystem').textContent = carto.closest_river_system || '--';
-        document.getElementById('cartoRiverProximity').textContent = `${carto.river_proximity_km} km`;
-        document.getElementById('cartoRiversList').textContent = (data.rivers || []).join(', ') || 'N/A';
-
-        document.getElementById('cartoDescription').textContent = carto.description || 'Sin descripción adicional.';
-
-        const select = document.getElementById('cartoDeptSelect');
-        if (select) select.value = data.department_id;
     },
 
     _setupClickInspector(viewInstance) {
@@ -623,9 +574,8 @@ const MapModule = {
                         <tr><td style="color:#8b9dc3; padding:3px 0;">🌊 Ríos</td><td style="text-align:right; font-weight:600;">${rivers}</td></tr>
                     </table>
                     ${description ? `<p style="margin-top:8px; font-size:11px; color:#8b9dc3; line-height:1.4; border-top:1px solid rgba(255,255,255,0.07); padding-top:8px;">${description}</p>` : ''}
-                    <div style="display:flex; gap:6px; margin-top:10px;">
-                        <button onclick="MapModule.openCartographicAnalysis('${a.department_id}');" style="flex:1; padding:7px; background:#0284c7; color:#fff; border:none; border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">🗺️ Cartografía</button>
-                        <button onclick="App.selectDepartment('${a.department_id}'); App.navigateTo('dashboard');" style="flex:1; padding:7px; background:#0ea5e9; color:#fff; border:none; border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">📊 Dashboard</button>
+                    <div style="margin-top:10px;">
+                        <button onclick="App.selectDepartment('${a.department_id}'); App.navigateTo('dashboard');" style="width:100%; padding:7px; background:#0ea5e9; color:#fff; border:none; border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">📊 Ver Dashboard del Departamento</button>
                     </div>
                 </div>
             `
@@ -781,13 +731,6 @@ const MapModule = {
             if (this.view2D) {
                 this.view2D.goTo({ center: [coords.lon, coords.lat], zoom: zoomLevel }, { duration: 800 });
             }
-            if (this.view3D) {
-                this.view3D.goTo({
-                    target: [coords.lon, coords.lat],
-                    zoom: zoomLevel,
-                    tilt: 45
-                }, { duration: 800 });
-            }
         }
     },
 
@@ -799,8 +742,161 @@ const MapModule = {
         );
         if (g) this.deptLayer.add(g);
         if (this.view2D) this.view2D.goTo({ center: [lon, lat], zoom: 14 }, { duration: 800 });
-        if (this.view3D) this.view3D.goTo({ target: [lon, lat], zoom: 14, tilt: 45 }, { duration: 800 });
         this.inspectPoint(lat, lon);
+    },
+
+    loadUrbanStreetClimateData(deptId = 'capital') {
+        if (!this._ready || !this._Graphic) return;
+
+        if (this.urbanHeatLayer) this.urbanHeatLayer.removeAll();
+        if (this.urbanRainLayer) this.urbanRainLayer.removeAll();
+        if (this.urbanWindLayer) this.urbanWindLayer.removeAll();
+
+        const dept = this._deptData[deptId] || { lat: -24.7821, lon: -65.4232, name: "Capital", rivers: ["Río Arenales"] };
+        const cLon = dept.lon;
+        const cLat = dept.lat;
+        const deptName = dept.name;
+
+        // 1. CALOR: Malla de Calor Urbano sobre Manzanas y Callejero del Departamento
+        const urbanHeatZones = [
+            {
+                name: `Microcentro & Callejero Comercial — ${deptName}`,
+                coords: [
+                    [cLon - 0.005, cLat + 0.003],
+                    [cLon + 0.004, cLat + 0.003],
+                    [cLon + 0.004, cLat - 0.004],
+                    [cLon - 0.005, cLat - 0.004]
+                ],
+                temp: 31.4,
+                desc: `Isla de calor sobre asfalto denso y calzada céntrica de ${deptName}.`
+            },
+            {
+                name: `Barrios Periféricos & Avenidas — ${deptName}`,
+                coords: [
+                    [cLon + 0.004, cLat + 0.008],
+                    [cLon + 0.012, cLat + 0.008],
+                    [cLon + 0.012, cLat - 0.002],
+                    [cLon + 0.004, cLat - 0.002]
+                ],
+                temp: 28.2,
+                desc: `Corredor térmico residencial con retención de calor en asfalto.`
+            },
+            {
+                name: `Zona Verde & Quebradas — ${deptName}`,
+                coords: [
+                    [cLon - 0.014, cLat - 0.002],
+                    [cLon - 0.005, cLat - 0.002],
+                    [cLon - 0.005, cLat - 0.010],
+                    [cLon - 0.014, cLat - 0.010]
+                ],
+                temp: 22.8,
+                desc: `Área microclimática fresca por arbolado y vegetación nativa.`
+            }
+        ];
+
+        urbanHeatZones.forEach(z => {
+            let fillColor = [254, 204, 92, 0.45];
+            if (z.temp > 30) fillColor = [227, 26, 28, 0.55];
+            else if (z.temp > 27) fillColor = [253, 141, 60, 0.5];
+
+            const polygon = new this._Graphic({
+                geometry: { type: "polygon", rings: z.coords },
+                symbol: {
+                    type: "simple-fill",
+                    color: fillColor,
+                    outline: { color: [255, 255, 255, 0.6], width: 1 }
+                },
+                attributes: { name: z.name, temp: z.temp, desc: z.desc },
+                popupTemplate: {
+                    title: `🔥 Isla de Calor Urbano: ${z.name}`,
+                    content: `
+                        <div style="font-family:Inter,sans-serif; font-size:12px;">
+                            <div style="font-size:16px; font-weight:700; color:#ef4444; margin-bottom:4px;">${z.temp} °C</div>
+                            <p style="color:#8b9dc3; line-height:1.4;">${z.desc}</p>
+                        </div>
+                    `
+                }
+            });
+            if (this.urbanHeatLayer) this.urbanHeatLayer.add(polygon);
+        });
+
+        // 2. AGUA: Lluvia y Escurrimiento Proyectado sobre Trazado de Calles
+        const mainRiver = (dept.rivers && dept.rivers[0]) ? dept.rivers[0] : "Cauce Urbano";
+        const streetRunoffs = [
+            {
+                name: `Av. Principal San Martín / Belgrano (${deptName})`,
+                path: [[cLon - 0.008, cLat + 0.006], [cLon - 0.002, cLat + 0.001], [cLon + 0.005, cLat - 0.005]],
+                flow_mmh: 48,
+                status: "Escurrimiento Rápido por Calzada"
+            },
+            {
+                name: `Corredor Comercial & Baden Urbano (${deptName})`,
+                path: [[cLon - 0.006, cLat - 0.006], [cLon + 0.002, cLat - 0.002], [cLon + 0.008, cLat + 0.004]],
+                flow_mmh: 72,
+                status: "Acumulación en Calzada"
+            },
+            {
+                name: `Trazado Urbano de ${mainRiver}`,
+                path: [[cLon - 0.012, cLat + 0.008], [cLon, cLat], [cLon + 0.012, cLat - 0.008]],
+                flow_mmh: 105,
+                status: `Cauce Urbano Crítico — ${mainRiver}`
+            }
+        ];
+
+        streetRunoffs.forEach(s => {
+            let lineColor = [56, 189, 248, 0.85];
+            let width = 4;
+            if (s.flow_mmh > 80) { lineColor = [8, 81, 156, 0.95]; width = 7; }
+            else if (s.flow_mmh > 50) { lineColor = [66, 146, 198, 0.9]; width = 5.5; }
+
+            const line = new this._Graphic({
+                geometry: { type: "polyline", paths: s.path },
+                symbol: {
+                    type: "simple-line",
+                    color: lineColor,
+                    width: width,
+                    style: "solid"
+                },
+                attributes: { name: s.name, flow: s.flow_mmh, status: s.status },
+                popupTemplate: {
+                    title: `🌧️ Escurrimiento en Trazado: ${s.name}`,
+                    content: `
+                        <div style="font-family:Inter,sans-serif; font-size:12px;">
+                            <div style="font-size:15px; font-weight:700; color:#38bdf8; margin-bottom:4px;">${s.flow_mmh} mm/h</div>
+                            <div style="color:#e2e8f0; font-weight:600;">Estado: ${s.status}</div>
+                        </div>
+                    `
+                }
+            });
+            if (this.urbanRainLayer) this.urbanRainLayer.add(line);
+        });
+
+        // 3. AIRE: Vectores y Líneas de Corriente de Viento en Trazados Urbanos
+        const urbanWindCorridors = [
+            { name: `Cañón Urbano Centro (${deptName})`, lon: cLon + 0.002, lat: cLat + 0.002, speed: 26, dir: 45 },
+            { name: `Corredor Eólico Avenidas (${deptName})`, lon: cLon - 0.004, lat: cLat - 0.003, speed: 35, dir: 120 },
+            { name: `Brisa de Ladera / Valles (${deptName})`, lon: cLon + 0.006, lat: cLat - 0.005, speed: 18, dir: 290 }
+        ];
+
+        urbanWindCorridors.forEach(w => {
+            const windArrow = new this._Graphic({
+                geometry: { type: "point", longitude: w.lon, latitude: w.lat },
+                symbol: {
+                    type: "simple-marker",
+                    style: "triangle",
+                    angle: w.dir,
+                    color: [168, 85, 247, 0.95],
+                    size: Math.max(14, Math.min(28, w.speed * 0.7)),
+                    outline: { color: [255, 255, 255, 0.9], width: 1.5 }
+                },
+                attributes: { name: w.name, speed: w.speed, dir: w.dir },
+                popupTemplate: {
+                    title: `💨 Corriente de Viento Urbano: ${w.name}`,
+                    content: `<b>Velocidad: ${w.speed} km/h</b><br>Dirección del Flujo: ${w.dir}° Azimut`
+                }
+            });
+            if (this.urbanWindLayer) this.urbanWindLayer.add(windArrow);
+        });
     },
 
     setDeptCoords(departments) {
@@ -811,10 +907,10 @@ const MapModule = {
             this._deptData[d.id] = d;
         });
 
-        const cartoSelect = document.getElementById('cartoDeptSelect');
-        if (cartoSelect) {
-            cartoSelect.innerHTML = `<option value="">🗺️ Análisis Cartográfico por Depto...</option>` +
-                departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        // Poblar desplegable de municipios/departamentos para el clima urbano en calles
+        const urbanSelect = document.getElementById('urbanDeptSelect');
+        if (urbanSelect) {
+            urbanSelect.innerHTML = departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
         }
     }
 };

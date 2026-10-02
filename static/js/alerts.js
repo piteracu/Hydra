@@ -12,13 +12,21 @@ const AudioSirenModule = {
     isPlaying: false,
     timer: null,
     progressInterval: null,
+    vibrateInterval: null,
 
     init() {
         if (!this.audioCtx) {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             if (AudioContext) {
-                this.audioCtx = new AudioContext();
+                this.audioCtx = new AudioContext({ latencyHint: 'interactive' });
             }
+        }
+    },
+
+    unlockAudio() {
+        this.init();
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
         }
     },
 
@@ -35,29 +43,54 @@ const AudioSirenModule = {
 
         if (onCountdown) onCountdown(remainingSeconds);
 
-        // Crear osciladores sintéticos para tono de sirena dual (700Hz y 950Hz)
+        // Disparar Vibración de Emergencia (Física en celulares, ignora modo silencio)
+        if ("vibrate" in navigator) {
+            try {
+                navigator.vibrate([800, 200, 800, 200, 800, 200]);
+                this.vibrateInterval = setInterval(() => {
+                    if (this.isPlaying) {
+                        navigator.vibrate([800, 200, 800, 200, 800, 200]);
+                    }
+                }, 3000);
+            } catch (e) {}
+        }
+
+        // Crear osciladores sintéticos para tono de sirena dual penetrante (700Hz y 1100Hz)
         try {
             if (this.audioCtx) {
                 const now = this.audioCtx.currentTime;
 
                 this.gainNode = this.audioCtx.createGain();
-                this.gainNode.gain.setValueAtTime(0.3, now);
+                // Volumen máximo posible para penetrar entornos ruidosos o altavoz bajo
+                this.gainNode.gain.setValueAtTime(0.85, now);
                 this.gainNode.connect(this.audioCtx.destination);
 
+                // Oscilador 1: Onda Diente de Sierra (Aguda / Penetrante)
                 this.oscillator1 = this.audioCtx.createOscillator();
                 this.oscillator1.type = 'sawtooth';
                 this.oscillator1.frequency.setValueAtTime(700, now);
 
-                // Modulación de frecuencia de sirena (sweep de 700Hz a 950Hz cada 0.5s)
-                for (let i = 0; i < durationSeconds * 2; i++) {
-                    const time = now + (i * 0.5);
-                    const freq = i % 2 === 0 ? 950 : 700;
-                    this.oscillator1.frequency.exponentialRampToValueAtTime(freq, time + 0.45);
+                // Oscilador 2: Onda Cuadrada (Armónico de alta frecuencia)
+                this.oscillator2 = this.audioCtx.createOscillator();
+                this.oscillator2.type = 'square';
+                this.oscillator2.frequency.setValueAtTime(850, now);
+
+                // Modulación de frecuencia de sirena (sweep de 700Hz a 1100Hz cada 0.4s)
+                for (let i = 0; i < durationSeconds * 2.5; i++) {
+                    const time = now + (i * 0.4);
+                    const freq1 = i % 2 === 0 ? 1100 : 700;
+                    const freq2 = i % 2 === 0 ? 1300 : 850;
+                    this.oscillator1.frequency.exponentialRampToValueAtTime(freq1, time + 0.38);
+                    this.oscillator2.frequency.exponentialRampToValueAtTime(freq2, time + 0.38);
                 }
 
                 this.oscillator1.connect(this.gainNode);
+                this.oscillator2.connect(this.gainNode);
+
                 this.oscillator1.start(now);
+                this.oscillator2.start(now);
                 this.oscillator1.stop(now + durationSeconds);
+                this.oscillator2.stop(now + durationSeconds);
             }
         } catch (e) {
             console.warn("Web Audio API falló o no soportado:", e);
@@ -91,6 +124,13 @@ const AudioSirenModule = {
             clearInterval(this.progressInterval);
             this.progressInterval = null;
         }
+        if (this.vibrateInterval) {
+            clearInterval(this.vibrateInterval);
+            this.vibrateInterval = null;
+        }
+        if ("vibrate" in navigator) {
+            try { navigator.vibrate(0); } catch(e) {}
+        }
         if (this.timer) {
             clearTimeout(this.timer);
             this.timer = null;
@@ -101,6 +141,11 @@ const AudioSirenModule = {
                 this.oscillator1.stop();
                 this.oscillator1.disconnect();
                 this.oscillator1 = null;
+            }
+            if (this.oscillator2) {
+                this.oscillator2.stop();
+                this.oscillator2.disconnect();
+                this.oscillator2 = null;
             }
             if (this.gainNode) {
                 this.gainNode.disconnect();
@@ -119,6 +164,47 @@ const AudioSirenModule = {
 const AlertsModule = {
     autoAlerts: [],
     manualAlerts: [],
+    lastSeenAlertId: 0,
+    broadcasterInterval: null,
+    isBroadcasterInitialized: false,
+
+    async initRealtimeBroadcaster() {
+        if (this.isBroadcasterInitialized) return;
+        this.isBroadcasterInitialized = true;
+
+        // Sync inicial: obtener el max_id actual para no disparar sirena por alertas pasadas al recargar
+        try {
+            const resp = await fetch('/api/alerts/latest?after_id=0');
+            const data = await resp.json();
+            if (data.success && data.max_id != null) {
+                this.lastSeenAlertId = data.max_id;
+            }
+        } catch (e) {
+            console.error('Error inicializando difusor en tiempo real:', e);
+        }
+
+        await this.loadManualAlerts();
+
+        // Polling cada 2 segundos para recibir nuevas alertas broadcasted en TODOS los dispositivos
+        this.broadcasterInterval = setInterval(async () => {
+            try {
+                const resp = await fetch(`/api/alerts/latest?after_id=${this.lastSeenAlertId}`);
+                const data = await resp.json();
+                if (data.success && data.alerts && data.alerts.length > 0) {
+                    this.lastSeenAlertId = data.max_id;
+                    await this.loadManualAlerts();
+                    if (window.App && App.loadDashboard) App.loadDashboard();
+
+                    // Disparar Alerta y Sirena sonora de 15s en TODOS los dispositivos receptores
+                    data.alerts.forEach(alert => {
+                        this.triggerEmergencyAlert(alert);
+                    });
+                }
+            } catch (e) {
+                // Silencioso ante pérdidas temporales de conexión
+            }
+        }, 2000);
+    },
 
     async loadAutoAlerts() {
         try {
@@ -155,11 +241,15 @@ const AlertsModule = {
             });
             const data = await resp.json();
             if (data.success) {
-                App.showToast('🚨 Alerta transmitida exitosamente', 'success');
+                App.showToast('🚨 Alerta transmitida exitosamente a todos los dispositivos', 'success');
+                // Actualizar el ID para no volver a reproducir en la siguiente verificación del polling
+                if (data.alert && data.alert.id) {
+                    this.lastSeenAlertId = data.alert.id;
+                }
                 await this.loadManualAlerts();
                 await App.loadDashboard();
 
-                // Disparar Sirena Sonora de 15 segundos y Notificación de Emergencia
+                // Disparar Sirena Sonora de 15 segundos en el dispositivo emisor
                 this.triggerEmergencyAlert(data.alert);
                 return true;
             } else {
@@ -204,7 +294,7 @@ const AlertsModule = {
             document.getElementById('emergencyAuthor').textContent = `Por: ${alert.created_by}`;
             document.getElementById('emergencyTime').textContent = new Date(alert.created_at || Date.now()).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
-            // Disparar Sirena de Audio por 15 segundos
+            // Disparar Sirena de Audio y Vibración por 15 segundos
             AudioSirenModule.playSiren(15);
         }
 
@@ -234,7 +324,6 @@ const AlertsModule = {
 
     plotManualAlertsOnMaps(manualAlerts) {
         if (!MapModule || !MapModule.deptLayer) return;
-        // Re-plotear departamentos enriquecidos con alertas manuales
         if (App.departments) {
             App.loadDashboard();
         }
@@ -369,11 +458,23 @@ const AlertsModule = {
             App.navigateTo('map');
         });
 
+        // Pre-desbloqueo de AudioContext con interacción del usuario (para sobrepasar bloqueo de modo silencio/autoplays)
+        const unlockAudioEvents = ['click', 'touchstart', 'pointerdown', 'keydown'];
+        const handleUnlock = () => {
+            AudioSirenModule.unlockAudio();
+            unlockAudioEvents.forEach(evt => document.removeEventListener(evt, handleUnlock));
+        };
+        unlockAudioEvents.forEach(evt => document.addEventListener(evt, handleUnlock));
+
         // Solicitar permisos de notificación de escritorio al interactuar
         document.addEventListener('click', () => {
             if ("Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission();
             }
         }, { once: true });
+
+        // Inicializar transmisión broadcast en tiempo real a todos los dispositivos
+        this.initRealtimeBroadcaster();
     }
 };
+
