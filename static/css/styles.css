@@ -646,3 +646,152 @@ select:focus, input:focus, textarea:focus {
   .stat-card { padding: 0.7rem; }
   .stat-value { font-size: 1rem; }
 }
+
+/* ═══ PWA & Native Standalone Enhancements ═══ */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+
+/* Safe areas for iPhone notch / Home bar and Standalone Mobile UI */
+body.is-standalone .sidebar {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+body.is-standalone .mobile-header {
+  padding-top: max(0.65rem, env(safe-area-inset-top));
+  height: calc(56px + env(safe-area-inset-top));
+}
+
+body.is-standalone .main-content {
+  padding-top: calc(66px + env(safe-area-inset-top));
+  padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
+}
+
+/* PWA Install Button Sidebar */
+.btn-install-pwa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.65rem;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(2, 132, 199, 0.3));
+  color: var(--accent);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-top: 0.4rem;
+}
+.btn-install-pwa:hover {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(2, 132, 199, 0.5));
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.3);
+}
+.btn-install-pwa svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Mobile Header Action Group & Install Button */
+.mobile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mobile-install-btn {
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: var(--accent);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.mobile-install-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.mobile-install-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Offline Banner */
+.offline-banner {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  z-index: 9999;
+  background: rgba(239, 68, 68, 0.95);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 30px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+.offline-banner.active {
+  transform: translateX(-50%) translateY(0);
+}
+.offline-banner svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* iOS Installation Instructions Modal */
+.ios-modal-card {
+  max-width: 400px;
+  width: 90%;
+}
+.ios-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.5rem;
+}
+.ios-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  background: var(--bg-card-hover);
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.ios-step-num {
+  background: var(--accent);
+  color: #fff;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.ios-step p {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+  margin: 0;
+}
+

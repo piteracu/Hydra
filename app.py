@@ -2,7 +2,7 @@
 Hydra - Aplicación principal Flask
 Sistema Provincial de Monitoreo Hídrico - Provincia de Salta
 """
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, send_from_directory
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import config
@@ -12,10 +12,24 @@ app = Flask(__name__)
 CORS(app)
 
 
-# ─── Página principal ────────────────────────────────────────────
+# ─── Página principal y PWA ─────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/manifest.json")
+def serve_manifest():
+    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def serve_sw():
+    response = send_from_directory("static/js", "sw.js", mimetype="application/javascript")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
 
 
 # ─── API: Departamentos ─────────────────────────────────────────
