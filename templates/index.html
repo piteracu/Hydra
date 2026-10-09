@@ -645,7 +645,119 @@
                     🔊 Silenciar Sirena
                 </button>
                 <button class="btn btn-primary" id="btnViewEmergencyMap">
-                    🗺️ Ver en Mapa
+                    🗺️ Ver Info en Mapa
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Información del Departamento y Contexto de Mapas -->
+    <div class="modal-overlay" id="deptMapInfoModal" style="display:none">
+        <div class="modal dept-map-modal">
+            <div class="modal-header">
+                <div class="dept-modal-title">
+                    <span id="deptModalIcon" style="font-size:1.6rem;">🟢</span>
+                    <div>
+                        <h3 id="deptModalName">Departamento Salta</h3>
+                        <span id="deptModalSubtitle" style="font-size:0.75rem; color:var(--text-muted);">Análisis de Inundabilidad y Contexto de Mapas</span>
+                    </div>
+                </div>
+                <button class="modal-close" id="closeDeptMapModal">&times;</button>
+            </div>
+            <div class="modal-body dept-modal-body">
+                <!-- Nivel de Alerta e Índice de Riesgo -->
+                <div class="dept-alert-badge-box" id="deptModalAlertBox">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span id="deptModalAlertLevelBadge" class="alert-card-badge">Nivel 1 — Normal</span>
+                        <span id="deptModalRiskScore" style="font-weight:700; font-size:0.85rem; color:var(--accent);">Riesgo: 15/100</span>
+                    </div>
+                    <p id="deptModalAlertDesc" style="font-size:0.82rem; margin-top:4px; color:var(--text-secondary);">Sin riesgo significativo registrado.</p>
+                </div>
+
+                <!-- Información General del Departamento -->
+                <div class="dept-info-grid">
+                    <div class="dept-info-item">
+                        <span class="info-label">Población</span>
+                        <span class="info-val" id="deptModalPop">--</span>
+                    </div>
+                    <div class="dept-info-item">
+                        <span class="info-label">Superficie</span>
+                        <span class="info-val" id="deptModalArea">--</span>
+                    </div>
+                    <div class="dept-info-item">
+                        <span class="info-label">Elevación</span>
+                        <span class="info-val" id="deptModalElev">--</span>
+                    </div>
+                    <div class="dept-info-item">
+                        <span class="info-label">Cuenca Hídrica</span>
+                        <span class="info-val" id="deptModalBasin">--</span>
+                    </div>
+                </div>
+
+                <!-- Factores del Mapa en Tiempo Real -->
+                <h4 class="dept-section-subtitle">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/></svg>
+                    Factores Monitoreados en los Mapas
+                </h4>
+                <div class="dept-factors-grid">
+                    <div class="dept-factor-box">
+                        <span class="factor-icon">🌧️</span>
+                        <div>
+                            <div class="factor-title">Precipitación (Capa Lluvia)</div>
+                            <div class="factor-value" id="deptModalPrecip">-- mm</div>
+                        </div>
+                    </div>
+                    <div class="dept-factor-box">
+                        <span class="factor-icon">🌊</span>
+                        <div>
+                            <div class="factor-title">Caudal de Ríos (Capa Ríos)</div>
+                            <div class="factor-value" id="deptModalRivers">--</div>
+                        </div>
+                    </div>
+                    <div class="dept-factor-box">
+                        <span class="factor-icon">💧</span>
+                        <div>
+                            <div class="factor-title">Saturación Suelo (Capa Suelo)</div>
+                            <div class="factor-value" id="deptModalSoil">--%</div>
+                        </div>
+                    </div>
+                    <div class="dept-factor-box">
+                        <span class="factor-icon">⛰️</span>
+                        <div>
+                            <div class="factor-title">Pendiente (Capa Relieve)</div>
+                            <div class="factor-value" id="deptModalSlope">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Análisis Cartográfico de Inundabilidad -->
+                <div class="carto-analysis-box" id="deptModalCartoBox">
+                    <div class="carto-box-header">📐 Cartografía de Inundabilidad</div>
+                    <p id="deptModalSlopeDesc" style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:6px;"></p>
+                    <div class="carto-box-kv">
+                        <span>Proximidad a Cauce Crítico:</span>
+                        <strong id="deptModalRiverProx">-- km</strong>
+                    </div>
+                    <div class="carto-box-kv">
+                        <span>Área Vulnerable Estimada:</span>
+                        <strong id="deptModalVulnPct">--%</strong>
+                    </div>
+                </div>
+
+                <!-- Recomendaciones -->
+                <div class="dept-recs-box">
+                    <div style="font-weight:700; font-size:0.78rem; color:var(--accent); margin-bottom:4px; text-transform:uppercase;">🛡️ Recomendaciones de Defensa Civil</div>
+                    <ul id="deptModalRecsList" style="font-size:0.8rem; color:var(--text-secondary); padding-left:1rem; margin:0;"></ul>
+                </div>
+            </div>
+
+            <!-- Botones de Acción para Navegar en los Mapas -->
+            <div class="modal-actions dept-modal-actions" style="display:flex; gap:0.6rem; justify-content:flex-end; margin-top:1rem;">
+                <button class="btn btn-outline" id="btnDeptViewUrbanMap">
+                    🏙️ Clima Urbano en Calles
+                </button>
+                <button class="btn btn-primary" id="btnDeptViewProvincialMap">
+                    🗺️ Ver en Mapa 2D Provincial
                 </button>
             </div>
         </div>

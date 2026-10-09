@@ -2,22 +2,24 @@
 Servicio de datos meteorológicos - Integración con Open-Meteo Weather API
 """
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import config
+
+_weather_cache = {}
+CACHE_TTL_SECONDS = 300
 
 
 def get_weather_forecast(lat, lon, days=7):
     """
     Obtiene el pronóstico meteorológico para una ubicación.
-    
-    Args:
-        lat: Latitud
-        lon: Longitud
-        days: Días de pronóstico (1-16)
-    
-    Returns:
-        dict con datos horarios y diarios
     """
+    cache_key = (round(lat, 3), round(lon, 3), days)
+    now = datetime.now()
+    if cache_key in _weather_cache:
+        cached_data, cached_time = _weather_cache[cache_key]
+        if now - cached_time < timedelta(seconds=CACHE_TTL_SECONDS):
+            return cached_data
+
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -28,10 +30,10 @@ def get_weather_forecast(lat, lon, days=7):
     }
     
     try:
-        response = requests.get(config.OPEN_METEO_WEATHER_URL, params=params, timeout=15)
+        response = requests.get(config.OPEN_METEO_WEATHER_URL, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return {
+        result = {
             "success": True,
             "location": {"latitude": lat, "longitude": lon},
             "elevation": data.get("elevation"),
@@ -41,7 +43,11 @@ def get_weather_forecast(lat, lon, days=7):
             "current_summary": _get_current_summary(data),
             "updated_at": datetime.now().isoformat()
         }
+        _weather_cache[cache_key] = (result, now)
+        return result
     except requests.RequestException as e:
+        if cache_key in _weather_cache:
+            return _weather_cache[cache_key][0]
         return {"success": False, "error": str(e)}
 
 

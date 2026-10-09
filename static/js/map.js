@@ -574,8 +574,9 @@ const MapModule = {
                         <tr><td style="color:#8b9dc3; padding:3px 0;">🌊 Ríos</td><td style="text-align:right; font-weight:600;">${rivers}</td></tr>
                     </table>
                     ${description ? `<p style="margin-top:8px; font-size:11px; color:#8b9dc3; line-height:1.4; border-top:1px solid rgba(255,255,255,0.07); padding-top:8px;">${description}</p>` : ''}
-                    <div style="margin-top:10px;">
-                        <button onclick="App.selectDepartment('${a.department_id}'); App.navigateTo('dashboard');" style="width:100%; padding:7px; background:#0ea5e9; color:#fff; border:none; border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">📊 Ver Dashboard del Departamento</button>
+                    <div style="margin-top:10px; display:flex; flex-direction:column; gap:5px;">
+                        <button onclick="AlertsModule.showDepartmentMapInfo('${a.department_id}')" style="width:100%; padding:7px; background:#0ea5e9; color:#fff; border:none; border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">🗺️ Ver Análisis y Contexto de Mapas</button>
+                        <button onclick="App.selectDepartment('${a.department_id}'); App.navigateTo('dashboard');" style="width:100%; padding:6px; background:rgba(255,255,255,0.08); color:#e2e8f0; border:1px solid rgba(255,255,255,0.15); border-radius:5px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;">📊 Ver Dashboard Completo</button>
                     </div>
                 </div>
             `

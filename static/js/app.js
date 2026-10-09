@@ -104,6 +104,12 @@ const App = {
             if (recList && alert.recommendations) {
                 recList.innerHTML = alert.recommendations.map(r => `<li>${r}</li>`).join('');
             }
+
+            banner.onclick = () => {
+                if (AlertsModule && AlertsModule.showDepartmentMapInfo) {
+                    AlertsModule.showDepartmentMapInfo(dept);
+                }
+            };
         }
 
         // Update time

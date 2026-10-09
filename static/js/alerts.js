@@ -183,27 +183,29 @@ const AlertsModule = {
             console.error('Error inicializando difusor en tiempo real:', e);
         }
 
-        await this.loadManualAlerts();
+        this.loadManualAlerts();
 
-        // Polling cada 2 segundos para recibir nuevas alertas broadcasted en TODOS los dispositivos
+        // Polling ultrarrápido a 1.5s para recibir nuevas alertas broadcasted en TODOS los dispositivos (<3s)
         this.broadcasterInterval = setInterval(async () => {
             try {
                 const resp = await fetch(`/api/alerts/latest?after_id=${this.lastSeenAlertId}`);
                 const data = await resp.json();
                 if (data.success && data.alerts && data.alerts.length > 0) {
                     this.lastSeenAlertId = data.max_id;
-                    await this.loadManualAlerts();
-                    if (window.App && App.loadDashboard) App.loadDashboard();
 
-                    // Disparar Alerta y Sirena sonora de 15s en TODOS los dispositivos receptores
+                    // 1. DISPARAR INMEDIATAMENTE ALERTA Y SIRENA EN TODOS LOS RECEPTORES (0 DELAY)
                     data.alerts.forEach(alert => {
                         this.triggerEmergencyAlert(alert);
                     });
+
+                    // 2. Actualizar UI en segundo plano sin bloquear el disparo de la alarma
+                    this.loadManualAlerts();
+                    if (window.App && App.loadDashboard) App.loadDashboard();
                 }
             } catch (e) {
                 // Silencioso ante pérdidas temporales de conexión
             }
-        }, 2000);
+        }, 1500);
     },
 
     async loadAutoAlerts() {
@@ -242,15 +244,16 @@ const AlertsModule = {
             const data = await resp.json();
             if (data.success) {
                 App.showToast('🚨 Alerta transmitida exitosamente a todos los dispositivos', 'success');
-                // Actualizar el ID para no volver a reproducir en la siguiente verificación del polling
                 if (data.alert && data.alert.id) {
                     this.lastSeenAlertId = data.alert.id;
                 }
-                await this.loadManualAlerts();
-                await App.loadDashboard();
 
-                // Disparar Sirena Sonora de 15 segundos en el dispositivo emisor
+                // 1. Disparar Sirena Sonora y Alerta de Emergencia INMEDIATAMENTE en el dispositivo emisor
                 this.triggerEmergencyAlert(data.alert);
+
+                // 2. Actualizar UI en segundo plano
+                this.loadManualAlerts();
+                App.loadDashboard();
                 return true;
             } else {
                 App.showToast('Error: ' + data.error, 'error');
@@ -279,6 +282,7 @@ const AlertsModule = {
 
         const modal = document.getElementById('emergencyAlertModal');
         if (modal) {
+            modal.dataset.deptId = alert.department_id;
             modal.style.display = 'flex';
             document.getElementById('emergencyDeptName').textContent = alert.department_name;
             document.getElementById('emergencyIcon').textContent = alert.alert_icon || '🔴';
@@ -322,6 +326,78 @@ const AlertsModule = {
         }
     },
 
+    async showDepartmentMapInfo(deptId) {
+        if (!deptId) return;
+
+        const modal = document.getElementById('deptMapInfoModal');
+        if (!modal) return;
+
+        const deptInfo = App.departments?.find(d => d.id === deptId) || { name: deptId, id: deptId };
+        document.getElementById('deptModalName').textContent = deptInfo.name || deptId;
+        document.getElementById('deptModalPop').textContent = deptInfo.population ? deptInfo.population.toLocaleString('es-AR') : 'N/A';
+        document.getElementById('deptModalArea').textContent = deptInfo.area_km2 ? `${deptInfo.area_km2.toLocaleString('es-AR')} km²` : 'N/A';
+        document.getElementById('deptModalElev').textContent = deptInfo.elevation ? `${deptInfo.elevation} m` : 'N/A';
+        document.getElementById('deptModalBasin').textContent = deptInfo.basin || 'Cuenca Provincial';
+
+        modal.dataset.deptId = deptId;
+        modal.style.display = 'flex';
+
+        // Enfocar departamento en el mapa en segundo plano
+        if (MapModule && MapModule.focusDepartment) {
+            MapModule.focusDepartment(deptId);
+        }
+
+        try {
+            const [cartoResp, alertResp] = await Promise.all([
+                fetch(`/api/cartography/${deptId}`).then(r => r.json()).catch(() => null),
+                fetch(`/api/alert/${deptId}`).then(r => r.json()).catch(() => null)
+            ]);
+
+            if (cartoResp && cartoResp.success) {
+                const carto = cartoResp.cartography || {};
+                const telemetry = cartoResp.realtime_telemetry || {};
+
+                document.getElementById('deptModalIcon').textContent = telemetry.alert_icon || '🟢';
+                const badge = document.getElementById('deptModalAlertLevelBadge');
+                if (badge) {
+                    badge.textContent = `Nivel ${telemetry.alert_level || 1} — ${telemetry.alert_name || 'Normal'}`;
+                    badge.style.background = `${telemetry.alert_color || '#22c55e'}25`;
+                    badge.style.color = telemetry.alert_color || '#22c55e';
+                }
+                const riskScoreEl = document.getElementById('deptModalRiskScore');
+                if (riskScoreEl) {
+                    riskScoreEl.textContent = `Riesgo: ${telemetry.risk_score || 15}/100`;
+                    riskScoreEl.style.color = telemetry.alert_color || '#22c55e';
+                }
+
+                const descEl = document.getElementById('deptModalAlertDesc');
+                if (descEl) descEl.textContent = carto.description || deptInfo.description || 'Monitoreo provincial en tiempo real.';
+
+                const precip24 = telemetry.precipitation_24h || 0;
+                const precip48 = telemetry.precipitation_48h || 0;
+                document.getElementById('deptModalPrecip').textContent = `${precip24} mm (24h) / ${precip48} mm (48h)`;
+
+                const riversList = (deptInfo.rivers || cartoResp.rivers || []).join(', ');
+                const ratio = telemetry.river_discharge_ratio || 1.0;
+                document.getElementById('deptModalRivers').textContent = `${riversList || 'Cauce local'} (${ratio}x media)`;
+
+                document.getElementById('deptModalSoil').textContent = `${telemetry.soil_saturation_pct || 20}%`;
+                document.getElementById('deptModalSlope').textContent = carto.slope_type || 'Moderada';
+
+                document.getElementById('deptModalSlopeDesc').textContent = carto.slope_description || '';
+                document.getElementById('deptModalRiverProx').textContent = `${carto.river_proximity_km || 0} km (${carto.closest_river_system || 'Río cercano'})`;
+                document.getElementById('deptModalVulnPct').textContent = `${carto.vulnerability_area_pct || 20}%`;
+
+                const recsList = document.getElementById('deptModalRecsList');
+                if (recsList && cartoResp.recommendations) {
+                    recsList.innerHTML = cartoResp.recommendations.map(r => `<li>${r}</li>`).join('');
+                }
+            }
+        } catch (e) {
+            console.error("Error al cargar información cartográfica del departamento:", e);
+        }
+    },
+
     plotManualAlertsOnMaps(manualAlerts) {
         if (!MapModule || !MapModule.deptLayer) return;
         if (App.departments) {
@@ -358,7 +434,7 @@ const AlertsModule = {
 
             return `
             <div class="alert-card" data-level="${a.alert_level}" data-dept="${a.department_id}"
-                 onclick="App.selectDepartment('${a.department_id}')">
+                 onclick="AlertsModule.showDepartmentMapInfo('${a.department_id}')">
                 <div class="alert-card-header">
                     <h4>${a.alert_icon} ${a.department_name}</h4>
                     <span class="alert-card-badge" style="background:${a.alert_color}15;color:${a.alert_color}">${a.alert_name}</span>
@@ -366,6 +442,11 @@ const AlertsModule = {
                 <div class="alert-card-body">
                     <p>Precipitación 24h: <strong>${precip}</strong></p>
                     <p>Elevación: ${a.elevation}m · Riesgo: ${a.topographic_risk}/4${pop ? ' · ' + pop : ''}</p>
+                    <div style="margin-top:8px;">
+                        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); AlertsModule.showDepartmentMapInfo('${a.department_id}')" style="padding:3px 8px; font-size:11px;">
+                            🗺️ Ver Info y Mapa
+                        </button>
+                    </div>
                 </div>
                 <div class="alert-card-footer">
                     <span>${rivers || 'Sin ríos registrados'}</span>
@@ -385,20 +466,25 @@ const AlertsModule = {
         }
 
         grid.innerHTML = this.manualAlerts.map(a => `
-            <div class="alert-card" data-level="${a.alert_level}">
+            <div class="alert-card" data-level="${a.alert_level}" onclick="AlertsModule.showDepartmentMapInfo('${a.department_id}')">
                 <div class="alert-card-header">
                     <h4>${a.alert_icon} ${a.department_name}</h4>
                     <span class="alert-card-badge" style="background:${a.alert_color}15;color:${a.alert_color}">${a.alert_name}</span>
                 </div>
                 <div class="alert-card-body">
                     <p style="margin-bottom:6px; font-weight:600; color:#fff;">${a.message}</p>
-                    <button class="btn btn-sm btn-outline" onclick="AlertsModule.triggerEmergencyAlert(${JSON.stringify(a).replace(/"/g, '&quot;')})" style="padding:2px 6px; font-size:11px;">
-                        🔊 Reproducir Sirena (15s)
-                    </button>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); AlertsModule.triggerEmergencyAlert(${JSON.stringify(a).replace(/"/g, '&quot;')})" style="padding:3px 8px; font-size:11px;">
+                            🔊 Sirena (15s)
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); AlertsModule.showDepartmentMapInfo('${a.department_id}')" style="padding:3px 8px; font-size:11px;">
+                            🗺️ Ver Info y Mapa
+                        </button>
+                    </div>
                 </div>
                 <div class="alert-card-footer">
                     <span>Por: ${a.created_by} — ${new Date(a.created_at).toLocaleString('es-AR')}</span>
-                    <button class="btn btn-sm btn-danger" onclick="AlertsModule.deactivateAlert(${a.id})">Desactivar</button>
+                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); AlertsModule.deactivateAlert(${a.id})">Desactivar</button>
                 </div>
             </div>
         `).join('');
@@ -455,10 +541,53 @@ const AlertsModule = {
         btnViewEmergencyMap?.addEventListener('click', () => {
             AudioSirenModule.stopSiren();
             if (emergencyModal) emergencyModal.style.display = 'none';
-            App.navigateTo('map');
+            const deptId = emergencyModal.dataset.deptId;
+            if (deptId) {
+                this.showDepartmentMapInfo(deptId);
+            } else {
+                App.navigateTo('map');
+            }
         });
 
-        // Pre-desbloqueo de AudioContext con interacción del usuario (para sobrepasar bloqueo de modo silencio/autoplays)
+        document.getElementById('emergencyCard')?.addEventListener('click', () => {
+            AudioSirenModule.stopSiren();
+            if (emergencyModal) emergencyModal.style.display = 'none';
+            const deptId = emergencyModal.dataset.deptId;
+            if (deptId) this.showDepartmentMapInfo(deptId);
+        });
+
+        // Modal de Información del Departamento y Mapas
+        const deptModal = document.getElementById('deptMapInfoModal');
+        const closeDeptModal = document.getElementById('closeDeptMapModal');
+        const btnDeptViewProvincialMap = document.getElementById('btnDeptViewProvincialMap');
+        const btnDeptViewUrbanMap = document.getElementById('btnDeptViewUrbanMap');
+
+        closeDeptModal?.addEventListener('click', () => { if (deptModal) deptModal.style.display = 'none'; });
+        deptModal?.addEventListener('click', (e) => { if (e.target === deptModal) deptModal.style.display = 'none'; });
+
+        btnDeptViewProvincialMap?.addEventListener('click', () => {
+            const deptId = deptModal?.dataset.deptId;
+            if (deptModal) deptModal.style.display = 'none';
+            App.navigateTo('map');
+            if (MapModule.isUrbanMode) {
+                MapModule.toggleUrbanMode(false);
+            }
+            if (deptId) {
+                App.selectDepartment(deptId);
+                MapModule.focusDepartment(deptId);
+            }
+        });
+
+        btnDeptViewUrbanMap?.addEventListener('click', () => {
+            const deptId = deptModal?.dataset.deptId;
+            if (deptModal) deptModal.style.display = 'none';
+            App.navigateTo('map');
+            if (deptId) App.selectDepartment(deptId);
+            MapModule.toggleUrbanMode(true);
+            if (deptId) MapModule.switchUrbanDepartment(deptId);
+        });
+
+        // Pre-desbloqueo de AudioContext con interacción del usuario
         const unlockAudioEvents = ['click', 'touchstart', 'pointerdown', 'keydown'];
         const handleUnlock = () => {
             AudioSirenModule.unlockAudio();
@@ -473,8 +602,9 @@ const AlertsModule = {
             }
         }, { once: true });
 
-        // Inicializar transmisión broadcast en tiempo real a todos los dispositivos
+        // Inicializar transmisión broadcast en tiempo real a todos los dispositivos (<3s)
         this.initRealtimeBroadcaster();
     }
 };
+
 
