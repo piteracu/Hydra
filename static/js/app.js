@@ -4,6 +4,7 @@ const App = {
     currentDept: 'capital',
     departments: [],
     refreshInterval: null,
+    isLoadingDashboard: false,
 
     async init() {
         await this.loadDepartments();
@@ -50,96 +51,103 @@ const App = {
         const dept = this.departments.find(d => d.id === deptId);
         document.getElementById('dashboardSubtitle').textContent =
             `Resumen general — ${dept ? dept.name : deptId}`;
+        ChartModule.resetCache();
         this.loadDashboard();
         MapModule.focusDepartment(deptId);
     },
 
     async loadDashboard() {
-        const dept = this.currentDept;
-        // Load weather, flood, and alert data in parallel
-        const [weatherResp, floodResp, alertResp] = await Promise.allSettled([
-            fetch(`/api/weather/${dept}`).then(r => r.json()),
-            fetch(`/api/flood/${dept}`).then(r => r.json()),
-            fetch(`/api/alert/${dept}`).then(r => r.json())
-        ]);
+        if (this.isLoadingDashboard) return;
+        this.isLoadingDashboard = true;
+        try {
+            const dept = this.currentDept;
+            // Load weather, flood, and alert data in parallel
+            const [weatherResp, floodResp, alertResp] = await Promise.allSettled([
+                fetch(`/api/weather/${dept}`).then(r => r.json()),
+                fetch(`/api/flood/${dept}`).then(r => r.json()),
+                fetch(`/api/alert/${dept}`).then(r => r.json())
+            ]);
 
-        const weather = weatherResp.status === 'fulfilled' ? weatherResp.value : null;
-        const flood = floodResp.status === 'fulfilled' ? floodResp.value : null;
-        const alert = alertResp.status === 'fulfilled' ? alertResp.value : null;
+            const weather = weatherResp.status === 'fulfilled' ? weatherResp.value : null;
+            const flood = floodResp.status === 'fulfilled' ? floodResp.value : null;
+            const alert = alertResp.status === 'fulfilled' ? alertResp.value : null;
 
-        // Current conditions
-        const currentResp = await fetch(`/api/weather/current/${dept}`).then(r => r.json()).catch(() => null);
-        if (currentResp?.success) {
-            document.getElementById('statTemp').textContent = `${currentResp.temperature ?? '--'}°C`;
-            document.getElementById('statHumidity').textContent = `${currentResp.humidity ?? '--'}%`;
-            document.getElementById('statWind').textContent = `${currentResp.wind_speed ?? '--'} km/h`;
-        }
-
-        // Weather charts
-        if (weather?.success && weather.daily) {
-            ChartModule.createPrecipChart(weather.daily);
-            const precip24 = weather.current_summary?.precipitation_next_24h ?? 0;
-            document.getElementById('statPrecip').textContent = `${precip24} mm`;
-        }
-
-        // Flood chart
-        if (flood?.success && flood.daily) {
-            ChartModule.createRiverChart(flood.daily);
-            const discharge = flood.analysis?.current_discharge ?? '--';
-            document.getElementById('statRiver').textContent = `${discharge} m³/s`;
-        }
-
-        // Alert banner
-        if (alert?.success) {
-            const banner = document.getElementById('alertBanner');
-            banner.setAttribute('data-level', alert.alert_level);
-            document.getElementById('alertBannerIcon').textContent = alert.alert_icon;
-            document.getElementById('alertBannerTitle').textContent = `${alert.alert_name} — ${alert.department_name}`;
-            document.getElementById('alertBannerDesc').textContent = alert.alert_description;
-            document.getElementById('alertBannerLevel').textContent = `Nivel ${alert.alert_level}`;
-            document.getElementById('statElevation').textContent = `${alert.elevation} m`;
-
-            // Recommendations
-            const recList = document.getElementById('recommendationsList');
-            if (recList && alert.recommendations) {
-                recList.innerHTML = alert.recommendations.map(r => `<li>${r}</li>`).join('');
+            // Current conditions
+            const currentResp = await fetch(`/api/weather/current/${dept}`).then(r => r.json()).catch(() => null);
+            if (currentResp?.success) {
+                document.getElementById('statTemp').textContent = `${currentResp.temperature ?? '--'}°C`;
+                document.getElementById('statHumidity').textContent = `${currentResp.humidity ?? '--'}%`;
+                document.getElementById('statWind').textContent = `${currentResp.wind_speed ?? '--'} km/h`;
             }
 
-            banner.onclick = () => {
-                if (AlertsModule && AlertsModule.showDepartmentMapInfo) {
-                    AlertsModule.showDepartmentMapInfo(dept);
+            // Weather charts
+            if (weather?.success && weather.daily) {
+                ChartModule.createPrecipChart(weather.daily);
+                const precip24 = weather.current_summary?.precipitation_next_24h ?? 0;
+                document.getElementById('statPrecip').textContent = `${precip24} mm`;
+            }
+
+            // Flood chart
+            if (flood?.success && flood.daily) {
+                ChartModule.createRiverChart(flood.daily);
+                const discharge = flood.analysis?.current_discharge ?? '--';
+                document.getElementById('statRiver').textContent = `${discharge} m³/s`;
+            }
+
+            // Alert banner
+            if (alert?.success) {
+                const banner = document.getElementById('alertBanner');
+                banner.setAttribute('data-level', alert.alert_level);
+                document.getElementById('alertBannerIcon').textContent = alert.alert_icon;
+                document.getElementById('alertBannerTitle').textContent = `${alert.alert_name} — ${alert.department_name}`;
+                document.getElementById('alertBannerDesc').textContent = alert.alert_description;
+                document.getElementById('alertBannerLevel').textContent = `Nivel ${alert.alert_level}`;
+                document.getElementById('statElevation').textContent = `${alert.elevation} m`;
+
+                // Recommendations
+                const recList = document.getElementById('recommendationsList');
+                if (recList && alert.recommendations) {
+                    recList.innerHTML = alert.recommendations.map(r => `<li>${r}</li>`).join('');
                 }
-            };
+
+                banner.onclick = () => {
+                    if (AlertsModule && AlertsModule.showDepartmentMapInfo) {
+                        AlertsModule.showDepartmentMapInfo(dept);
+                    }
+                };
+            }
+
+            // Update time
+            document.getElementById('lastUpdate').textContent =
+                `Última actualización: ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+
+            // Load alerts for map — enrich with department data
+            const allAlerts = await AlertsModule.loadAutoAlerts();
+            await AlertsModule.loadManualAlerts(true);
+
+            if (allAlerts.length) {
+                // Enrich alerts with full department data for the map
+                const enriched = allAlerts.map(a => {
+                    const deptInfo = this.departments.find(d => d.id === a.department_id);
+                    if (deptInfo) {
+                        a.population = deptInfo.population;
+                        a.area_km2 = deptInfo.area_km2;
+                        a.basin = deptInfo.basin;
+                        a.description = deptInfo.description;
+                    }
+                    return a;
+                });
+                MapModule.plotDepartments(enriched);
+            }
+
+            // Load capital risk zones
+            try {
+                const zones = await fetch('/api/capital/risk-zones').then(r => r.json());
+                if (zones.success) MapModule.plotCapitalZones(zones.zones);
+            } catch (e) {}
+        } finally {
+            this.isLoadingDashboard = false;
         }
-
-        // Update time
-        document.getElementById('lastUpdate').textContent =
-            `Última actualización: ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
-
-        // Load alerts for map — enrich with department data
-        const allAlerts = await AlertsModule.loadAutoAlerts();
-        await AlertsModule.loadManualAlerts();
-
-        if (allAlerts.length) {
-            // Enrich alerts with full department data for the map
-            const enriched = allAlerts.map(a => {
-                const deptInfo = this.departments.find(d => d.id === a.department_id);
-                if (deptInfo) {
-                    a.population = deptInfo.population;
-                    a.area_km2 = deptInfo.area_km2;
-                    a.basin = deptInfo.basin;
-                    a.description = deptInfo.description;
-                }
-                return a;
-            });
-            MapModule.plotDepartments(enriched);
-        }
-
-        // Load capital risk zones
-        try {
-            const zones = await fetch('/api/capital/risk-zones').then(r => r.json());
-            if (zones.success) MapModule.plotCapitalZones(zones.zones);
-        } catch (e) {}
     },
 
     async refreshData() {

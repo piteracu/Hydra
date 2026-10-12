@@ -222,14 +222,16 @@ const AlertsModule = {
         return [];
     },
 
-    async loadManualAlerts() {
+    async loadManualAlerts(skipMapPlot = false) {
         try {
             const resp = await fetch('/api/alerts/manual');
             const data = await resp.json();
             if (data.success) {
                 this.manualAlerts = data.alerts;
                 this.renderManualAlerts();
-                this.plotManualAlertsOnMaps(data.alerts);
+                if (!skipMapPlot) {
+                    this.plotManualAlertsOnMaps(data.alerts);
+                }
             }
         } catch (e) { console.error('Error loading manual alerts:', e); }
     },
@@ -398,10 +400,27 @@ const AlertsModule = {
         }
     },
 
-    plotManualAlertsOnMaps(manualAlerts) {
-        if (!MapModule || !MapModule.deptLayer) return;
-        if (App.departments) {
-            App.loadDashboard();
+    async plotManualAlertsOnMaps(manualAlerts) {
+        if (!MapModule || !MapModule.deptLayer || !MapModule._ready) return;
+        if (!App.departments || !App.departments.length) return;
+        try {
+            const resp = await fetch('/api/alerts/all');
+            const data = await resp.json();
+            if (data.success && data.alerts) {
+                const enriched = data.alerts.map(a => {
+                    const deptInfo = App.departments.find(d => d.id === a.department_id);
+                    if (deptInfo) {
+                        a.population = deptInfo.population;
+                        a.area_km2 = deptInfo.area_km2;
+                        a.basin = deptInfo.basin;
+                        a.description = deptInfo.description;
+                    }
+                    return a;
+                });
+                MapModule.plotDepartments(enriched);
+            }
+        } catch (e) {
+            console.error("Error al actualizar alertas en el mapa:", e);
         }
     },
 
